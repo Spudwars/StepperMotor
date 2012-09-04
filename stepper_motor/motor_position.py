@@ -17,31 +17,6 @@ except ImportError:
             #print "< would like to send '%s' to parallel port! >" % hex(x)
     Parallel = Printer
 
-'''
-motor_position.py
-=================
-
-- Requirements:
-$ pip install parallel, mock
-
-- Assumes that at first, motor is in state 0 and will move to first index (0x07)
-
-- There may be a slight loss in accuracy converting state to offset for
-  calculating cycles
-
-
-TODO
-====
-
-Test all argparse usages
-
-argparse options checking
-
-
-
- 
-'''
-
 # configure this per motor to be all the values to rotate a motor 360 degrees
 MOTOR_INPUTS = [0x05, 0x07, 0x06, 0x0E, 0x0A, 0x0B, 0x09, 0x0D] * 3
 
