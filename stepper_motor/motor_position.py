@@ -2,7 +2,20 @@
 import os
 import time
 
-from parallel import Parallel
+try:
+    from parallel import Parallel
+except ImportError:
+    print "Requires Java Communications API and pyparallel"
+    print "http://sourceforge.net/projects/pyserial/files/pyparallel/0.2/"
+    #raise
+    
+    print "WARNING: Running in Dry Run mode without parallel port control!"
+    class Printer(object):
+        call_count = 0
+        def setData(self, x):
+            self.call_count += 1
+            #print "< would like to send '%s' to parallel port! >" % hex(x)
+    Parallel = Printer
 
 '''
 motor_position.py
@@ -50,8 +63,8 @@ def offset_to_state(offset):
     '''
     Converts offset as above to state (index into motor input positions)
     
-    :param state: Offset from 0 to 1
-    :type state: float
+    :param offset: Offset from 0 to 1
+    :type offset: float
     :returns: Motor position state as index
     :rtype: int
     '''
@@ -61,14 +74,37 @@ def offset_to_state(offset):
 
 def angle_to_cycles(angle, current_state):
     '''
+    Converts an absolute angle to the offset required to turn the motor from
+    the current state.
+    
+    Note: will find the shortest rotation, clockwise or anti-clockwise.
+    
+    TODO: allow override to force direction if required.
+    
+    :param angle: Desired angle
+    :type angle: float
+    :param current_state: Motor position state as index
+    :type current_state: int
+    :returns: Cycles to rotate motor
+    :rtype: float between -1 and 1
     '''
     current_offset = state_to_offset(current_state)
-    cycles = (angle / 360.0) - current_offset
-    return cycles
+    desired_offset = (angle%360 / 360.0)
+    #Q: Is there an easier way to find the minimum distance?
+    fwd_cycles = desired_offset - current_offset
+    rev_cycles = desired_offset - current_offset - 1
+    zero_first = lambda a, b: cmp(abs(a), abs(b))
+    return sorted((fwd_cycles, rev_cycles), zero_first)[0]
 
 
 def state_to_angle(state):
     '''
+    Converts a state to angle.
+    
+    :param state: Motor position state as index
+    :type state: int
+    :returns: Angle
+    :rtype: float
     '''
     #Q: state 48 should return 720 or 0?
     return 360.0 / len(MOTOR_INPUTS) * state
@@ -95,17 +131,17 @@ def stepper_generator(current_state, state_steps):
         # NOTE: virtual_state is not used other than for informing the user the 
         # overall relative step we've applied!  
         state_index += step
-        if state_index > len(MOTOR_INPUTS):
+        if state_index >= len(MOTOR_INPUTS):
             # start at list 0
             state_index = 0
-        elif state_index < len(MOTOR_INPUTS):
+        elif state_index < 0:
             # start at the end
-            state_index = len(MOTOR_INPUTS)
+            state_index = len(MOTOR_INPUTS) -1
         else:
             # we're at an index within the current motor inputs list
             pass
         
-        print "%03d : Moving to state index %02d, %s hex %03.2f degrees" % (
+        print "%+ 4d : Moving to internal state index %02d, %s hex %03.2f degrees" % (
             virtual_state, state_index, hex(MOTOR_INPUTS[state_index]),
             state_to_angle(state_index))
 
@@ -127,32 +163,60 @@ def turn_motor(cycles, current_state, delay=0.05):
     :rtype: int
     '''
     # round to the nearest step possible
-    steps = round(cycles * len(MOTOR_INPUTS))
+    steps = int(round(cycles * len(MOTOR_INPUTS)))
     
     p = Parallel()
     stepper = stepper_generator(current_state, steps)
     
-    for new_state, motor_position in stepper:
-        print "turn motor to position %s" % motor_position
+    for current_state, motor_position in stepper:
+        ##print "turn motor to position %s" % hex(motor_position)
         p.setData(motor_position)
         time.sleep(delay)
 
-    return new_state
+    return current_state
             
 
 if __name__ == '__main__':
     import argparse
     example = """
-Turn motor 1.3 turns anti clockwise, slowly:
-$ motor_position.py --cycle -1.3 --delay 0.5
 
-Turn motor 180 degrees (half a turn) clockwise from its current position:
-$ motor_position.py --rotate 180
+Here follow some examples:
 
-Turn motor to 0 degrees absolute angle
-$ motor_position.py --angle 0
+Turn motor 1.3 turns anti clockwise, slowly from 0:
+$ motor_position.py --cycle -1.3 --delay 0.5 --reset
+
+   +1 : Moving to internal state index 23, 0xd hex 345.00 degrees
+   +0 : Moving to internal state index 22, 0x9 hex 330.00 degrees
+   -1 : Moving to internal state index 21, 0xb hex 315.00 degrees
+   -2 : Moving to internal state index 20, 0xa hex 300.00 degrees
+   -3 : Moving to internal state index 19, 0xe hex 285.00 degrees
+ ...
+  -28 : Moving to internal state index 18, 0x6 hex 270.00 degrees
+  -29 : Moving to internal state index 17, 0x7 hex 255.00 degrees
+ Saved new state index 17 to file: motor_state.ini
+
+
+Turn motor 45 degrees (eighth a turn) clockwise from its current position:
+$ motor_position.py --rotate 45
+
+ Read in current state position as 17
+  +18 : Moving to internal state index 18, 0x6 hex 270.00 degrees
+  +19 : Moving to internal state index 19, 0xe hex 285.00 degrees
+  +20 : Moving to internal state index 20, 0xa hex 300.00 degrees
+ Saved new state index 20 to file: motor_state.ini
+
+
+Turn motor to 270 degrees absolute angle, from the current 300 degrees angle.
+$ motor_position.py --angle 270
+
+ Read in current state position as 20
+  +21 : Moving to internal state index 19, 0xe hex 285.00 degrees
+  +20 : Moving to internal state index 18, 0x6 hex 270.00 degrees
+ Saved new state index 18 to file: motor_state.ini
 """
-    parser = argparse.ArgumentParser(description="Control a motor position.%s" % example)
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Control a motor position.%s" % example)
     parser.add_argument('-c', '--cycle', type=float, default=None, 
                         help='Number of clockwise loops to cycle the motor. Negative cycles turn the motor counter clockwise!')
     parser.add_argument('-r', '--rotate', type=float, default=None, 
@@ -166,12 +230,14 @@ $ motor_position.py --angle 0
     parser.add_argument('--state_file', type=str, default='motor_state.ini',
                         help='Path of file to store motor position state.')                 
     parser.add_argument('--reset', action='store_true', default=False,
-                        help = 'Reset stored state to 0 degrees.')
+                        help='Reset stored state to 0 degrees before processing request.')
     args = parser.parse_args()
     
     # todo: check arguments are valid, this is only a start - can't allow ANGLE too!
-    if args.cycle and args.rotate:
-        parser.error('Cannot cycle and rotate, please provide only one!')
+    if (args.cycle and args.rotate) \
+       or (args.rotate and args.angle) \
+       or (args.angle and args.rotate):
+        parser.error('Cannot combine cycle, rotate and angle, please provide only one!')
 
 
     if args.list:
@@ -183,6 +249,7 @@ $ motor_position.py --angle 0
     # if reset, do this first
     if args.reset:
         if os.path.isfile(args.state_file):
+            print "Reseting state by deleting state file"
             os.remove(args.state_file)
         else:
             print "File not found: %s" % os.path.abspath(args.state_file)
@@ -192,8 +259,9 @@ $ motor_position.py --angle 0
         with open(args.state_file, 'r') as fh:
             # currently storing this value only!
             state = int(fh.read())
+            print "Read in current state position as %02d" % state
     else:
-        print "Creating new state file"
+        print "Creating initial state file, assuming current state is 00"
         state = 0
         with open(args.state_file, 'w') as fh:
             fh.write(str(state))
@@ -205,6 +273,9 @@ $ motor_position.py --angle 0
         cycles = args.rotate / 360.0
     elif args.angle:
         cycles = angle_to_cycles(args.angle, state)
+    elif args.reset:
+        # only reset required, exit
+        parser.exit()
     else:
         parser.error("You must provide cycle or rotate to work")
     
@@ -213,3 +284,7 @@ $ motor_position.py --angle 0
     # save state to file
     with open(args.state_file, 'w') as fh:
         fh.write(str(new_state))
+        print "Saved new state index %02d to file: %s" % (
+            new_state, args.state_file)
+
+    print "FINISHED"
