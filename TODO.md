@@ -8,3 +8,4 @@ TODO
 * Soft start. Delay argument accepts a function, standard sleep or in this case an sleep whose delay decreases at first
 * GUI front end to control angle via compass or speed etc.
 * Turn forever with adjustable speed - requires a new thread
+* Document setup of parallel module and modprobe of device

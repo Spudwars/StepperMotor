@@ -167,11 +167,32 @@ class StepperMotor(object):
         return self.state
             
     def turn_to_angle(self, angle):
+        '''
+        Turns the motor to the desired absolute angle.
+        
+        Accessor which converts arguments for turn_motor method.
+        
+        :param angle: Angle to turn to
+        :type angle: float
+        :returns: New state position
+        :rtype: int
+        '''
         cycles = self.angle_to_cycles(angle, self.state)
         return self.turn_motor(cycles)
     
-    def rotate(self, angle):
-        cycles = angle / 360.0
+    def rotate(self, degrees):
+        '''
+        Turns the motor by the number of degrees. -720 will turn the motor
+        two whole cycles anti-clockwise.
+        
+        Accessor which converts arguments for turn_motor method.
+        
+        :param degrees: Degrees to turn motor by
+        :type degrees: float
+        :returns: New state position
+        :rtype: int
+        '''
+        cycles = degrees / 360.0
         return self.turn_motor(cycles)
 
 
